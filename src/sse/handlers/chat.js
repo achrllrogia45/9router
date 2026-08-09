@@ -9,6 +9,7 @@ import {
 } from "../services/auth.js";
 import { getSettings } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
+import { runPluginHook } from "@/lib/pluginRuntime.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
@@ -77,6 +78,12 @@ export async function handleChat(request, clientRawRequest = null) {
   if (!modelStr) {
     log.warn("CHAT", "Missing model");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
+  }
+
+  // ── Plugin hooks: beforeRequest (fail-open; plugin returns {status,error} to block) ──
+  const pluginGate = await runPluginHook("beforeRequest", { apiKey, model: modelStr, body, request });
+  if (pluginGate?.error) {
+    return errorResponse(pluginGate.status || 429, pluginGate.error);
   }
 
   // Bypass naming/warmup requests before combo rotation to avoid wasting rotation slots

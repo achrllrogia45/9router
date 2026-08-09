@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
+import { runPluginHook } from "@/lib/pluginRuntime.js";
 
 function maskApiKey(key) {
   if (!key || typeof key !== "string") return null;
@@ -307,6 +308,8 @@ export async function saveRequestUsage(entry) {
     if (inserted) {
       pushToRing(entry);
       scheduleStatsEvent("update", 250);
+      // ── Plugin hooks: onUsage (fail-open, fire-and-forget) ──
+      runPluginHook("onUsage", entry).catch(() => {});
     }
   } catch (e) {
     console.error("Failed to save usage stats:", e);
