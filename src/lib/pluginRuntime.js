@@ -31,7 +31,19 @@ export async function loadPlugins() {
         const entryFile = join(pluginDir, "plugin.js");
         if (!existsSync(entryFile)) continue;
         try {
-          const mod = await import(pathToFileURL(entryFile).href + `?t=${Date.now()}`);
+          // Next.js replaces require/import in bundled code with its own loader shim, which
+          // cannot resolve out-of-tree files ("Cannot find module 'unknown'"). The raw Node
+          // loader is module.constructor._load — reach it via eval (eval strings are never
+          // transformed by the bundler). Node ≥22.12 loads ESM plugins through it.
+          const moduleObj = globalThis.__pluginModule || (globalThis.__pluginModule = eval("module"));
+          let mod;
+          try {
+            mod = moduleObj.constructor._load(entryFile);
+          } catch (loadErr) {
+            console.error("[plugins] _load failed:", loadErr?.message, "| moduleObj:", typeof moduleObj, "| entryFile:", entryFile, "| hasConstructor:", !!moduleObj?.constructor);
+            const fallbackImport = eval("(spec) => import(spec)");
+            mod = await fallbackImport(pathToFileURL(entryFile).href);
+          }
           const p = mod.default || mod;
           if (!p || !p.name) continue;
           const rec = { name: p.name, version: p.version || "0.0.0", module: p, dir: pluginDir };
@@ -43,7 +55,7 @@ export async function loadPlugins() {
             console.error(`[plugins] onInit failed for ${rec.name}:`, e?.message || e);
           }
         } catch (e) {
-          console.error(`[plugins] failed to load ${entry.name}:`, e?.message || e);
+          console.error(`[plugins] failed to load ${entry.name}:`, e?.message || e, "\n", e?.stack || "");
         }
       }
     } catch (e) {
